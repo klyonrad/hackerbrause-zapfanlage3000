@@ -8,6 +8,10 @@
 #define TC5_INIT  TC_CLKS_MCK2 | TC_LDBSTOP | TC_CAPT | TC_LDRA_RISING_EDGE | TC_LDRB_RISING_EDGE | TC_ABETRG_TIOA
 // ABETRG: TIOA or TIOB External Trigger Selection. When it is not set, then TIOB is the trigger
  
+StructPIO* piobaseB   = PIOB_BASE;                // Basisadresse PIO B
+StructPIO* piobaseA   = PIOA_BASE;
+StructAIC* aicbase  = AIC_BASE;      
+StructPMC* pmcbase = PMC_BASE;
  
 int bechergewicht = 0, fuellgewicht = 0;
 const int Maxgewicht = 50;
@@ -15,7 +19,7 @@ const int C1 =2000, C2 =0; // Waagenkonstanten
 const int zapftoleranz = 5;
 const int becher_minimum = 5;
 const int becher_maximum = 35;
-int pumpen = 0;
+int pumpen = 0; // "boolean" zustandsvariable
 int gewichttmp = 0;
  
 void taste_irq_handler (void) __attribute__ ((interrupt));
@@ -81,6 +85,40 @@ void intOutput(int number){
     puts(buffer);
 }
  
+ 
+inline void pumpeAn(){
+    piobaseA->PIO_PDR  = (1<<PIOTIOA3) ;   //_ output port for Timer 3 enabled *** pumpen start ***
+    pumpen = 1;
+}
+
+inline void pumpeAus(){
+    piobaseA->PIO_PER  = (1<<PIOTIOA3);    //__output port for timer 3 disabled --> pumpe aus.
+    pumpen = 0;
+    puts("Pumpen Beendet!\n");
+}
+
+inline void tarieren(){
+          //Messen des Bechers
+        
+        int bechertemp = messer(); // für if-Abfragen
+        if(pumpen == 0)
+	  {
+	  if ((bechertemp <=  becher_minimum) || (bechertemp > becher_maximum)){
+		puts("Das ist wahrscheinlich kein leerer Becher\n");
+		bechergewicht = 0;
+	    }
+	  else {
+	    bechergewicht = bechertemp;
+	    puts("Gewicht des Bechers ist ");
+	    intOutput(bechergewicht);
+	    puts(" Gramm. Waage ist tariert.\n");
+	    gewichttmp = 0;	    
+	  }
+	}
+	else
+	  puts("Es wird gerade gepumpt.\n");	
+}
+
 int MessungderMasse()
 {
 int m =0, sum = 0;
@@ -91,9 +129,6 @@ int m =0, sum = 0;
     volatile float Periodendauer1;
     volatile float Periodendauer2;
      
-    StructPMC* pmcbase = PMC_BASE;
-    StructPIO* piobaseA = PIOA_BASE;
-    StructPIO* piobaseB = PIOB_BASE;
     StructTC* tcbase4 = TCB4_BASE;
     StructTC* tcbase5 = TCB5_BASE;
      
@@ -154,54 +189,27 @@ int messer(void){
     return n;
 }
  
-// Interruptservice routine for Keys SW1 und SW2; for the pumping
-void taste_irq_handler (void)
-{
-// annoying redundant(?) declaration of struct pointers
-  StructPIO* piobaseB   = PIOB_BASE;                // Basisadresse PIO B
-  StructPIO* piobaseA   = PIOA_BASE;
-  StructAIC* aicbase  = AIC_BASE;                  
- 
-// ****************void taste_irq_handler (void) __attribute__ ((interrupt));*********************************
-    if (!(piobaseB->PIO_PDSR & KEY2)){               // wenn Taster 1 gedr?ckt wird. PDSR wird mit KEY2 verglichen
-        if (bechergewicht !=0){
-        //Pumpe Starten
-        piobaseA->PIO_PDR  = (1<<PIOTIOA3) ;   //_ output port for Timer 3 enabled *** pumpen start ***
-	pumpen = 1;
-        }
-        else
-          aicbase->AIC_EOICR = piobaseB->PIO_ISR;           //__Rueckgabe das interrupt ausgef?hrt wurde
+// Interruptservice routine for Keys SW1 und SW2 ********************************************************
+void taste_irq_handler (void) {  
+    if (!(piobaseB->PIO_PDSR & KEY1)){      // if button 1 is pushed. Tarieren
+      tarieren();
     }
- 
-    else if (!(piobaseB->PIO_PDSR & KEY1)){            // if button 2 is pushed, does 0x100 really mean "pressed" ?
-        //piobaseA->PIO_PDR  = (1<<PIOTIOA3) ; //_ output port for Timer 3 enabled *** pumpen start ***
-        //Messen des Bechers
-        
-        int bechertemp = messer(); // für if-Abfragen
-        if(pumpen == 0){
-			if ((bechertemp <=  becher_minimum) || (bechertemp > becher_maximum)){
-				puts("Das ist wahrscheinlich kein leerer Becher\n");
-				bechergewicht = 0;
-			// ToDo: start from the beginning
-			}
-			else {     
-				bechergewicht = bechertemp;
-				puts("Gewicht des Bechers ist ");
-				intOutput(bechergewicht);
-				puts(" Gramm. Waage ist tariert.\n");
-				gewichttmp = 0;
-				
-			}
-	}else{
-		puts("Es wird bereits gepumpt");
-	}
-	
+    
+    if (!(piobaseB->PIO_PDSR & KEY2)){ // wenn Taster 2 gedrueckt wird. PDSR wird mit KEY2 verglichen
+        if (bechergewicht !=0)
+	{
+	  pumpeAn();
+	  pumpe();
+        }
+        /*else
+          aicbase->AIC_EOICR = piobaseB->PIO_ISR;    // confirm that interrupt executed 
+          return;
+          */
     }
     aicbase->AIC_EOICR = piobaseB->PIO_ISR;           //__Rueckgabe das interrupt ausgef?hrt wurde 
-    
-  }
+}
 
-// Timer3 initialisieren // f?r die Pumpe
+// Timer3 initialisieren // fuer die Pumpe
 void Timer3_init( void )
 {
     StructTC* timerbase3  = TCB3_BASE;      // Basisadressse TC Block 1
@@ -231,23 +239,6 @@ void Timer3_init( void )
  
 void pumpe(void)
 {
-    StructPMC* pmcbase  = PMC_BASE;         // Basisadresse des PMC
-    StructPIO* piobaseA     = PIOA_BASE;        // Basisadresse PIO A
-    StructPIO* piobaseB     = PIOB_BASE;        // Basisadresse PIO B   
-     
-// ab hier entsprechend der Aufgabestellung ergdnzen
-//**************************************************
-    StructAIC* aicbase = AIC_BASE; // Initializing the Interrupt thingy
-    aicbase->AIC_IDCR = 1<< 14;
-    aicbase->AIC_ICCR = 1<<14;
-    aicbase->AIC_SVR[PIOB_ID] = (unsigned int) taste_irq_handler;
-    aicbase->AIC_SMR[PIOB_ID] = 0x7;
-    aicbase->AIC_IECR = 1<<14;
-    piobaseB->PIO_IER =  KEY1 | KEY2;
-    piobaseB->PIO_PER =  KEY1 | KEY2;
- 
-    // ToDo: only pump when we calibrated bechergewicht!
-
     int tst = 1;
     while((fuellgewicht <= Maxgewicht) && tst == 1)
     { //loop for pumping:      
@@ -263,23 +254,40 @@ void pumpe(void)
         }
  
     }
-    //if(tst == 1){
-	puts("Es wurden ");
-	intOutput(fuellgewicht);
-	puts(" Gramm abgefuellt!\n");
-    //}
-    piobaseA->PIO_PER  = (1<<PIOTIOA3);    //__output port for timer 3 disabled
-    pumpen = 0;
-    puts("Pumpen Beendet!\n");
-    //aicbase->AIC_IDCR = 1<<14;
-    //aicbase->AIC_ICCR = 1<<14;
+    // immer ausgeben, wieviel gepumpt wurde
+    puts("Es wurden ");
+    intOutput(fuellgewicht);
+    puts(" Gramm abgefuellt!\n");
+	
+    pumpeAus();
+    
+    /*aicbase->AIC_IDCR = 1<<14;
+    /aicbase->AIC_ICCR = 1<<14; */
     fuellgewicht = 0;
     gewichttmp = 0;
     bechergewicht = 0;
     tst = 1;
-    int sdfk = main();						//Zurueck an den anfang und alles Nochmal machen
+    run(); // go on....
 }
- 
+
+void initialiazation() {
+    pmcbase->PMC_PCER    = 0x4200;   // enable Periphal clocks for PIOB (0x4000) and TC3 (Timer3, 0x0200)
+    pmcbase->PMC_PCER = pmcbase->PMC_PCER | 0x06e00;  // Clock PIOA, PIOB, Timer5, Timer4 einschalten // das war vorher in messungdermasse
+
+    // Initializing the Interrupt thingy
+    aicbase->AIC_IDCR = 1<<14; // 
+    aicbase->AIC_ICCR = 1<<14;
+    aicbase->AIC_SVR[PIOB_ID] = (unsigned int) taste_irq_handler;
+    aicbase->AIC_SMR[PIOB_ID] = 0x7;
+    aicbase->AIC_IECR = 1<<14;
+    piobaseB->PIO_IER =  KEY1 | KEY2;
+    piobaseB->PIO_PER =  KEY1 | KEY2;
+    
+    inits();			//init der seriellen schnittstelle, über software interrupt
+    // init_ser();			//redundant?
+    Timer3_init();
+}
+
 void greeting(void) {
     puts("Hallo und Tach!\n");
     puts("Waagenkonstanten sind C1 = ");
@@ -289,43 +297,18 @@ void greeting(void) {
     puts("\n");
     puts("Druecke Key1 fuer Kalibrierung. Key2 fuer zapfen.\n");
 }  
- void taste1(){
-    StructPIO* piobaseB = PIOB_BASE;
-    while((piobaseB->PIO_PDSR & KEY1)){}
-    int bechertemp = messer(); // für if-Abfragen
-        if(pumpen == 0){
-			if ((bechertemp <=  becher_minimum) || (bechertemp > becher_maximum)){
-				puts("Das ist wahrscheinlich kein leerer Becher\n");
-				bechergewicht = 0;
-			// ToDo: start from the beginning
-			}
-			else {     
-				bechergewicht = bechertemp;
-				puts("Gewicht des Bechers ist ");
-				intOutput(bechergewicht);
-				puts(" Gramm. Waage ist tariert.\n");
-				gewichttmp = 0;
-				
-			}
-	}else{
-		puts("Es wird bereits gepumpt");
-	}
- }
+
+ 
+void run(){
+  greeting();
+  //pumpe();
+}
  
 int main(void)
 {
-    StructPMC* pmcbase = PMC_BASE;
-    pmcbase->PMC_PCER    = 0x4200;   // enable Periphal clocks for PIOB (0x4000) and TC3 (Timer3, 0x0200)
-    pmcbase->PMC_PCER = pmcbase->PMC_PCER | 0x06e00;  // Clock PIOA, PIOB, Timer5, Timer4 einschalten // das war vorher in messungdermasse
-    StructPIO* piobaseB     = PIOB_BASE;
+    initialiazation();
     
-    //inits();			//Redundantes aufrufen der funktion init_ser()
-    init_ser();			//initialisierung der seriellen schnittstelle
-    Timer3_init();
-    
-    greeting();			//Ausgabe der Begruessung
-    //taste1();
-    pumpe();//Diese Methode verwaltet das pumpen. Gestartet wird das Pumen in der Interrupt Routine und beendet in der Methode pumpe()
+    run();//Diese Methode verwaltet das pumpen. Gestartet wird das Pumen in der Interrupt Routine und beendet in der Methode pumpe()
  
  return 0;
 }
