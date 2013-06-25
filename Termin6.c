@@ -1,15 +1,3 @@
-// Programmrahmen zur Aufgabe Termin5
-// Aufgabe 1
-//************************************
-// 
-// von: Manfred Pester
-// vom: 06. August 2003
-// letzte Änderung:	30. November 2004
-// von: Manfred Pester
-// #include "seriell.h"
-// #include "swi.c"
-
-
 #include "../h/pmc.h"
 #include "../h/tc.h"
 #include "../h/pio.h"
@@ -24,8 +12,6 @@
 int bechergewicht, fuellgewicht = 0;
 const int Maxgewicht = 50;
 
-//static string begruessung ={"bla bla"};
-//static string fehler ={"Hier die Fehlermeldung"};
 
 void taste_irq_handler (void) __attribute__ ((interrupt));
 
@@ -216,21 +202,7 @@ void pumpe(void)
 	
 int main(void) // OLD MAIN
 {
-	/*char i;
-// Serielle initialisieren  
-	inits();
-	init_ser();
-// CR und LF auf das Terminal ausgeben
-	//putc (0xd);
-	//putc (0xa);
-// ein Zeichen von der seriellen abholen	
-	i=getc();
-	putc(i);
-// String ausgeben
-	char a = "hallo welt";
-	puts("Hallo! \n");
-	puts(a);
-	*/
+
 	Timer3_init();
 	pumpe();
 	return 0;
