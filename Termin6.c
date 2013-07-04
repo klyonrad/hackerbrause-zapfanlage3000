@@ -16,10 +16,10 @@ StructPMC* pmcbase = PMC_BASE;
 
 int bechergewicht = 0, fuellgewicht = 0;
 const int Maxgewicht = 50;
-const int C1 =2000, C2 =0; // Waagenkonstanten
-const int zapftoleranz = 5;
+const int C1 =18030, C2 =40; // Waagenkonstanten
+const int zapftoleranz = 10;
 const int becher_minimum = 5;
-const int becher_maximum = 35;
+const int becher_maximum = 500;
 int currentlyPumping = 0; // "boolean" condition variable
 int gewichttmp = 0;
 
@@ -103,6 +103,7 @@ int MessungderMasse()
 	durch den Teiler von 32 ergeben sich ca. 2ms
 	Zaehler mit positiver Flanke starten */
 
+	// timer werden gestartet
 	piobaseA->PIO_PDR    =   0x090;      // Disables PIO control (enables peripheral control) on P4 and P7
 	tcbase4->TC_CCR      =   TC_CLKDIS;
 	tcbase4->TC_CMR      =   TC4_INIT;
@@ -129,13 +130,13 @@ int MessungderMasse()
 	// 0x40 = LDRBS "RB Load has occurred since the last read of the Status Register, if WAVE = 0"
 	captureRA1  = tcbase4->TC_RA;                // 
 	captureRB1  = tcbase4->TC_RB;
-	capturediff1    =   abs(captureRB1) - abs(captureRA1);
+	capturediff1   =   abs(captureRB1) - abs(captureRA1);
 	Periodendauer1 = abs(capturediff1) / 12.5;  // Zeit in us
 
-	m = (C1* ( (Periodendauer2/Periodendauer1) -1) -C2) + 0.5; // +0.5 for rounding before typecast
+	m = (C1* ( (Periodendauer1/Periodendauer2) -1) -C2) + 0.5; // +0.5 for rounding before typecast
 
 	if(m < 0) { //eliminate "extreme" inaccuracy by calling this function again
-		MessungderMasse(); 
+		m = MessungderMasse();		
 	}
 	return m;
 }
@@ -143,12 +144,14 @@ int MessungderMasse()
 int messen(void){
 	int m = MessungderMasse();
 	int n = MessungderMasse(); 
-	/*while(m != n){ // waiting for "stability". This could lead to an endless loop
+	while(m != n){ // waiting for "stability". This could lead to an endless loop
 	m = MessungderMasse();
 	n = MessungderMasse();       
-	} */
+	} 
+	if(n < 0)
+	  n = messen();
 	// alternative way:
-	n = (n+m) / 2;
+	//n = (n+m) / 2;
 	return n;
 }
 
@@ -172,7 +175,7 @@ inline void tarieren(){
 			bechergewicht = 0;
 		}
 		else {
-			bechergewicht = bechertemp;
+			bechergewicht = messen();
 			puts("Gewicht des Bechers ist ");
 			printInt(bechergewicht);
 			puts(" Gramm. Waage ist tariert.\n");
@@ -235,14 +238,16 @@ void Timer3_init( void )
 
 void pumpe(void)
 {
+	fuellgewicht = 0;
+	gewichttmp = 0;
 	int tst = 1;
-	while((fuellgewicht <= Maxgewicht) && tst == 1)
+	while((fuellgewicht < Maxgewicht) && tst == 1)
 	{ //loop for pumping:      
 		gewichttmp = fuellgewicht;
-		fuellgewicht = (messen() - bechergewicht);
-		/*puts("Fuellgewicht: ");	// this prints the weight continously.
-		printInt(fuellgewicht);		// helpful for debugging.
-		puts("\n"); */
+		fuellgewicht = (messen()  - bechergewicht);
+		//puts("Fuellgewicht: ");	// this prints the weight continously.
+		//printInt(fuellgewicht);		// helpful for debugging.
+		//puts("\n");
 		if(gewichttmp > (fuellgewicht + zapftoleranz)){ //damit wir warten bis ein ausreichend grosser abstand zwischen Fuellgewicht und gewichttmp entsteht
 			tst = 0;
 			puts ("Ploetzlicher Gewichtsverlust! Wurde der Becher entfernt?\n");
@@ -251,7 +256,8 @@ void pumpe(void)
 	}
 	// always print how much stuff has been pumped
 	puts("Es wurden ");
-	printInt(fuellgewicht);
+	// printInt(fuellgewicht);
+	printInt (messen()-bechergewicht);
 	puts(" Gramm abgefuellt!\n");
 
 	pumpeAus();
@@ -262,7 +268,10 @@ void pumpe(void)
 	gewichttmp = 0;
 	bechergewicht = 0;
 	tst = 1;
-	run(); // go on....
+	int i = 0;
+	while(i < 10000)
+	  i++;
+	// run(); // go on....
 }
 
 void initialisation() {
@@ -295,7 +304,11 @@ void greeting(void) {
 
 void run(){
 	greeting();
-	//pumpe();
+	while (currentlyPumping == 0) {
+	  //puts ("schleife \n");
+	}
+	currentlyPumping = 0;
+	// pumpe();
 }
 
 int main(void)
