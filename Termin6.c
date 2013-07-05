@@ -24,7 +24,6 @@ int currentlyPumping = 0; // "boolean" condition variable
 int gewichttmp = 0;
 
 void taste_irq_handler (void) __attribute__ ((interrupt));
-int main();
 
 void intToChar(int value, char *buffer){
 	int foo, length;
@@ -200,10 +199,6 @@ void taste_irq_handler (void) {
 			pumpeAn();
 			pumpe();
 		}
-		/*else
-		aicbase->AIC_EOICR = piobaseB->PIO_ISR;    // confirm that interrupt executed 
-		return;
-		*/
 	}
 	aicbase->AIC_EOICR = piobaseB->PIO_ISR;		//confirm execution of interrupt 
 }
@@ -248,7 +243,7 @@ void pumpe(void)
 		//puts("Fuellgewicht: ");	// this prints the weight continously.
 		//printInt(fuellgewicht);		// helpful for debugging.
 		//puts("\n");
-		if(gewichttmp > (fuellgewicht + zapftoleranz)){ //damit wir warten bis ein ausreichend grosser abstand zwischen Fuellgewicht und gewichttmp entsteht
+		if(gewichttmp > (fuellgewicht + zapftoleranz)){ //zapftoleranz, damit wir warten bis ein ausreichend grosser abstand zwischen Fuellgewicht und gewichttmp entsteht
 			tst = 0;
 			puts ("Ploetzlicher Gewichtsverlust! Wurde der Becher entfernt?\n");
 		}
@@ -262,21 +257,18 @@ void pumpe(void)
 
 	pumpeAus();
 
-	/*aicbase->AIC_IDCR = 1<<14;
-	/aicbase->AIC_ICCR = 1<<14; */
 	fuellgewicht = 0;
 	gewichttmp = 0;
 	bechergewicht = 0;
 	tst = 1;
 	int i = 0;
-	while(i < 10000)
+	while(i < 10000) // kleine Zeitpause, damit sich die Waage etwas "beruhigt"
 	  i++;
-	// run(); // go on....
 }
 
 void initialisation() {
 	pmcbase->PMC_PCER = 0x4200;   // enable Periphal clocks for PIOB (0x4000) and TC3 (Timer3, 0x0200)
-	pmcbase->PMC_PCER = 0x06e00;  // Clock PIOA, PIOB, Timer5, Timer4 einschalten // das war vorher in messungdermasse
+	pmcbase->PMC_PCER = 0x06e00;  // Clock PIOA, PIOB, Timer5, Timer4 einschalten
 
 	// Initializing the Interrupt thingy
 	aicbase->AIC_IDCR = 1<<14;
@@ -305,15 +297,14 @@ void greeting(void) {
 void run(){
 	greeting();
 	while (currentlyPumping == 0) {
-	  //puts ("schleife \n");
+	  //puts ("in schleife \n");
 	}
 	currentlyPumping = 0;
-	// pumpe();
 }
 
 int main(void)
 {
 	initialisation();
-	run(); //Diese Methode verwaltet das Pumpen. Gestartet wird das Pumen in der Interrupt Routine und beendet in der Methode pumpe()
+	run();
 	return 0;
 }
